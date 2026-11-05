@@ -1,0 +1,19 @@
+[project]
+name = "wispr-cli"
+version = "0.1.0"
+description = "CLI for reading your Wispr Flow data through its MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Akram Zaytar" }]
+dependencies = ["click>=8.1", "httpx>=0.28.1"]
+
+[project.scripts]
+wispr = "wispr_cli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.urls]
+Homepage = "https://github.com/Akramz/wispr-cli"
