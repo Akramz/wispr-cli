@@ -1,11 +1,9 @@
 import json
-import subprocess
 import sys
 
 import click
 
 from . import client
-from .client import MCP, AuthError
 
 
 def parse_value(raw: str):
@@ -39,8 +37,7 @@ def login(no_browser):
     def show(url):
         click.echo(f"Sign in at:\n  {url}", err=True)
         if not no_browser:
-            opener = "open" if sys.platform == "darwin" else "xdg-open"
-            subprocess.run([opener, url], check=False, stderr=subprocess.DEVNULL)
+            click.launch(url)
 
     def paste():
         return click.prompt(
@@ -66,14 +63,14 @@ def logout():
 @click.option("--json", "as_json", is_flag=True, help="Print full tool schemas.")
 def tools(as_json):
     """List the tools the Wispr server offers."""
-    ts = MCP().tools()
+    ts = client.MCP().tools()
     if as_json:
         click.echo(json.dumps(ts, indent=2))
         return
     for t in ts:
-        props = t.get("inputSchema", {}).get("properties", {})
-        req = set(t.get("inputSchema", {}).get("required", []))
-        args = " ".join(f"{k}=" if k in req else f"[{k}=]" for k in props)
+        schema = t.get("inputSchema", {})
+        req = set(schema.get("required", []))
+        args = " ".join(f"{k}=" if k in req else f"[{k}=]" for k in schema.get("properties", {}))
         click.echo(f"{t['name']} {args}".rstrip())
         if t.get("description"):
             click.echo(f"    {t['description'].strip().splitlines()[0]}")
@@ -91,15 +88,7 @@ def call(tool, args, raw):
             raise click.BadParameter(f"expected key=value, got {a!r}")
         k, v = a.split("=", 1)
         kwargs[k] = parse_value(v)
-    res = MCP().call(tool, kwargs)
+    res = client.MCP().call(tool, kwargs)
     click.echo(json.dumps(res, indent=2, ensure_ascii=False) if raw else result_text(res))
     if res.get("isError"):
         sys.exit(1)
-
-
-def main():
-    try:
-        cli()
-    except AuthError as e:
-        click.echo(f"wispr: {e}", err=True)
-        sys.exit(2)

@@ -6,8 +6,9 @@ import secrets
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
+import click
 import httpx
 
 MCP_URL = "https://api.wisprflow.ai/connect/mcp"
@@ -15,11 +16,12 @@ AUTH = "https://mcp-auth.wisprflow.com/oauth2"
 SCOPE = "openid offline_access email profile"
 PORT = 8765
 REDIRECT = f"http://127.0.0.1:{PORT}/callback"
+PROTOCOL = "2025-06-18"
 STATE = Path(os.environ.get("WISPR_CONFIG", Path.home() / ".config" / "wispr" / "auth.json"))
 
 
-class AuthError(Exception):
-    pass
+class AuthError(click.ClickException):
+    exit_code = 4
 
 
 def load() -> dict:
@@ -62,11 +64,7 @@ def wait_for_callback() -> dict:
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if urlparse(self.path).path != "/callback":
-                self.send_response(404)
-                self.end_headers()
-                return
-            got.update({k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()})
+            got.update(parse_qsl(urlparse(self.path).query))
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -110,7 +108,7 @@ def browser_login(show, paste=None) -> dict:
     )
     show(url)
     if paste:
-        got = {k: v[0] for k, v in parse_qs(urlparse(paste().strip()).query).items()}
+        got = dict(parse_qsl(urlparse(paste().strip()).query))
     else:
         got = wait_for_callback()
     if "error" in got:
@@ -133,11 +131,11 @@ def browser_login(show, paste=None) -> dict:
     return store_tokens(state, r.json())
 
 
-def token() -> str:
+def token(refresh=False) -> str:
     state = load()
     if "access_token" not in state:
         raise AuthError("not logged in; run `wispr login`")
-    if time.time() < state["expires_at"]:
+    if not refresh and time.time() < state["expires_at"]:
         return state["access_token"]
     if "refresh_token" not in state:
         raise AuthError("session expired; run `wispr login`")
@@ -168,16 +166,19 @@ class MCP:
         init = self.rpc(
             "initialize",
             {
-                "protocolVersion": "2025-06-18",
+                "protocolVersion": PROTOCOL,
                 "capabilities": {},
                 "clientInfo": {"name": "wispr-cli", "version": "0.1.0"},
             },
         )
-        self.http.headers["MCP-Protocol-Version"] = init.get("protocolVersion", "2025-06-18")
+        self.http.headers["MCP-Protocol-Version"] = init["protocolVersion"]
         self.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def post(self, body: dict) -> httpx.Response:
         r = self.http.post(MCP_URL, json=body)
+        if r.status_code == 401:
+            self.http.headers["Authorization"] = f"Bearer {token(refresh=True)}"
+            r = self.http.post(MCP_URL, json=body)
         if r.status_code == 401:
             raise AuthError("token rejected; run `wispr login`")
         r.raise_for_status()
@@ -194,7 +195,7 @@ class MCP:
         else:
             msg = r.json()
         if "error" in msg:
-            raise RuntimeError(f"{method}: {msg['error']}")
+            raise click.ClickException(f"{method}: {msg['error']['message']}")
         return msg["result"]
 
     def tools(self) -> list[dict]:

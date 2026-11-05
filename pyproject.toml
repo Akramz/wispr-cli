@@ -9,7 +9,7 @@ authors = [{ name = "Akram Zaytar" }]
 dependencies = ["click>=8.1", "httpx>=0.28.1"]
 
 [project.scripts]
-wispr = "wispr_cli.cli:main"
+wispr = "wispr_cli.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
